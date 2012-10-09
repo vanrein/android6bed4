@@ -1,0 +1,23 @@
+README for Android-6bed4
+========================
+
+This is an implementation of the 6bed4 tunnel on Android.
+
+Current version is 0.1 and it is not really functional.
+At best, it claims the VPN for tunneling, pulls in all
+IPv6 traffic and drops it on the floor ;-) so the only
+thing that can currently be checked is that the tunnel
+disables IPv6 without harming IPv4.  If you have native
+IPv6 you will notice that IPv6 stops working.
+
+Future versions might be even more useful:
+
+ 0.1 :- VPN claimed, IPv6 routed by IPv4 is not
+ 0.2 :- VPN properly claimed, also on 1st start
+ 0.3 :- Tunnel IPv6 from *fixed* IPv4 address
+ 0.4 :- Use RtrSol/RtrAdv for autoconfig (v00)
+ 0.5 :- Use NgbAdv/NgbAdv for peering (v01)
+ 0.6 :- ??? Redirect native through 6bed4 (v02)
+
+Cheers,
+ -Rick

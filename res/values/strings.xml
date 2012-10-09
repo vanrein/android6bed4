@@ -1,0 +1,8 @@
+<resources>
+
+    <string name="app_name">6bed4</string>
+    <string name="welcome_6bed4">Welcome to the 6bed4 tunnel to IPv6</string>
+    <string name="menu_settings">Settings</string>
+    <string name="title_activity_main">6bed4</string>
+
+</resources>
