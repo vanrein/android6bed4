@@ -3,7 +3,13 @@ README for Android-6bed4
 
 This is an implementation of the 6bed4 tunnel on Android.
 
-Current version is 0.1 and it is not really functional.
+This is version 0.2 which has better locations for the
+various pieces of code that create the tunnel.  This makes
+it work on the first run as well, rather than just on the
+second run like v0.1 did.  Otherwise, it is the same as
+0.1 and so not really functional.  But the basic user
+interaction on the VPN is functional and reliable.
+
 At best, it claims the VPN for tunneling, pulls in all
 IPv6 traffic and drops it on the floor ;-) so the only
 thing that can currently be checked is that the tunnel
