@@ -11,6 +11,7 @@ import android.widget.ProgressBar;
 import java.io.IOException;
 import java.net.*;
 
+
 public class Android6bed4 extends Activity {
 
 	private DatagramSocket uplink = null;
@@ -43,12 +44,12 @@ public class Android6bed4 extends Activity {
 		super.onStart ();
 		if (debug != null) debug.setProgress (10);
 		try {
-			uplink = new DatagramSocket ();
+			uplink = new DatagramSocket (FixedLocalSettings.public_udp_port);
 		} catch (SocketException se) {
 			uplink = null;
 		}
 		try {
-			setupTunnelService (this, (Inet6Address) Inet6Address.getByName ("::1"));	/* TODO: Note here, not with a static IPv6 address */
+			setupTunnelService ((Inet6Address) Inet6Address.getByName ("::1"));	/* TODO: Note here, not with a static IPv6 address */
 		} catch (UnknownHostException uhe) {
 		}
 		if (debug != null) debug.setProgress (20);
@@ -85,6 +86,10 @@ public class Android6bed4 extends Activity {
 	
 	protected void onDestroy () {
 		super.onDestroy ();
+		if (downlink != null) {
+			downlink.teardown ();
+			downlink = null;
+		}
 		/* TODO: Nothing? */
 		if (debug != null) debug.setProgress (100);
  	}
@@ -94,13 +99,13 @@ public class Android6bed4 extends Activity {
 	 ***   Internal affairs -- tunnel service setup.    ***
 	 ***                                                ***/
 
-	public void setupTunnelService (Activity act, Inet6Address addr6bed4) {
+	public void setupTunnelService (Inet6Address addr6bed4) {
 		//
 		// Prepare the context for the VPN
-		Intent mktun_intent = VpnService.prepare (act);
+		Intent mktun_intent = VpnService.prepare (this);
 		if (mktun_intent != null) {
 			// This is a new start of the VPN
-			act.startActivityForResult (mktun_intent, 0);
+			this.startActivityForResult (mktun_intent, 0);
 		} else {
 			// Already started, apparently OK, so proceed to startup
 			this.onActivityResult (0, Activity.RESULT_OK, null);
@@ -111,17 +116,24 @@ public class Android6bed4 extends Activity {
 		if (resultcode == Activity.RESULT_OK) {
 			//
 			// Cleanup any prior tunnel file descriptors
-			this.onRevoke ();
+			if (downlink != null) {
+				downlink.teardown ();
+			}
 			//
 			// Setup a new tunnel
-			downlink = new TunnelService ();
+			// TODO: Due to this statement, two tunnel interfaces get created;
+			//       without it, none are created.  Not sure what to think
+			//       of it... need to leave it like this for now.
+			downlink = new TunnelService (uplink, publicserver);
 		}
 	}
 	
+	/*
 	synchronized public void onRevoke () {
 		if (downlink != null) {
 			downlink.teardown ();
 		}
 	}
+	*/
 
 }

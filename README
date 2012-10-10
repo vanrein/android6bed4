@@ -3,7 +3,24 @@ README for Android-6bed4
 
 This is an implementation of the 6bed4 tunnel on Android.
 
-This is version 0.2 which has better locations for the
+I am shocked; the file descriptors created by the VPN
+are non-blocking, making it impossible to wait for its
+I/O.  Furthermore, I found no way to use the select()
+call as I would have (and actually did) in C.  As a
+result, the tunnel must poll for traffic :'-(  So if I
+missed a Java trick here, *please* let me know.
+
+Version 0.3 actually passes information between the
+tunnel and its usage base, albeit from the assumptions
+that the IPv4 address is fixed and (not wholy reliable
+without port mapping and an explicit UDP port)that the
+external UDP port is the same as the internal one.  You
+need to create a Java source file for that, as described
+in the header of the TunnelService.java file.  Don't be
+afraid you might forget it though, your compiler will
+remind you :)
+
+Version 0.2 which already had better locations for the
 various pieces of code that create the tunnel.  This makes
 it work on the first run as well, rather than just on the
 second run like v0.1 did.  Otherwise, it is the same as
@@ -24,6 +41,7 @@ Future versions might be even more useful:
  0.4 :- Use RtrSol/RtrAdv for autoconfig (v00)
  0.5 :- Use NgbAdv/NgbAdv for peering (v01)
  0.6 :- ??? Redirect native through 6bed4 (v02)
+ 1.0 :- Add artwork and a spiffy webpage
 
 Cheers,
  -Rick
