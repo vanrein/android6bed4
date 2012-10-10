@@ -17,8 +17,6 @@ public class Android6bed4 extends Activity {
 	private DatagramSocket uplink = null;
 	private TunnelService downlink = null;
 	
-	private KeepAliveService kas;
-	
 	private ProgressBar debug;
 	
 	public InetSocketAddress publicserver;
@@ -53,8 +51,6 @@ public class Android6bed4 extends Activity {
 		} catch (UnknownHostException uhe) {
 		}
 		if (debug != null) debug.setProgress (20);
-		kas = new KeepAliveService (uplink, publicserver);
-		kas.start ();
 		if (debug != null) debug.setProgress (30);
 	}
 	
@@ -72,9 +68,10 @@ public class Android6bed4 extends Activity {
 	
 	protected void onStop () {
 		super.onStop ();
-		kas.stop ();
-		uplink.close ();
-		uplink = null;
+		if (uplink != null) {
+			uplink.close ();
+			uplink = null;
+		}
 		if (debug != null) debug.setProgress (80);
 	}
 
@@ -125,6 +122,15 @@ public class Android6bed4 extends Activity {
 			//       without it, none are created.  Not sure what to think
 			//       of it... need to leave it like this for now.
 			downlink = new TunnelService (uplink, publicserver);
+			if (downlink != null) {
+				//
+				// Given the successful startup, avoid future cleanups so the
+				// TunnelService can continue to use these resources.  It has
+				// taken responsibility over their cleanip after returning.
+				uplink = null;
+				downlink = null;
+				publicserver = null;
+			}
 		}
 	}
 	

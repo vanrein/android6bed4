@@ -39,8 +39,10 @@ public final class TunnelService extends VpnService {
 	static private FileInputStream  downlink_rd = null;
 	static private FileOutputStream downlink_wr = null;
 
-	static private SocketAddress tunserver = null;
+	static private InetSocketAddress tunserver = null;
 	static private DatagramSocket uplink = null;
+
+	static private KeepAliveService kas = null;
 	
 	public TunnelService () {
 		//
@@ -63,15 +65,49 @@ public final class TunnelService extends VpnService {
 			byte packet_up [] = new byte [1280];
 			DatagramPacket packet_dn = new DatagramPacket (new byte [1280+28], 1280+28);
 			try {
+				/* 
+				 * I am aware that the following code is less than optimal!
+				 * For some reason, the VpnService only returns a non-blocking
+				 * file descriptor that cannot subsequently be altered to be
+				 * blocking (for two parallel Threads) or used in a select()
+				 * style.  So polling is required.
+				 * The uplink is blocking, just to continue the confusion.
+				 * A slight upgrade of performance might be achieved by setting
+				 * up a separate Thread to handle that, but given that polling
+				 * is needed anyway, I decided not to bother to get the best out
+				 * of what seems to me like a bad design choice in VpnService.
+				 * If I have missed a way to turn the VpnService interface into
+				 * one that works in select() or even just a blocking version
+				 * than *please* let me know!  IMHO, polling is a rude technique.
+				 * 
+				 * Rick van Rein, October 2012.
+				 */
 				while (true) {
-					int uplen = downlink_rd.read (packet_up);
-					if (uplen > 0) {
-						uplink.send (new DatagramPacket (packet_up, uplen, tunserver));
+					int uplen, dnlen;
+					synchronized (this) {
+						if ((downlink_rd == null) || (uplink == null)) {
+							break;
+						}
+						uplen = downlink_rd.read (packet_up);
+						if (uplen > 0) {
+							try {
+								uplink.send (new DatagramPacket (packet_up, uplen, tunserver));
+							} catch (IOException ioe) {
+								/* Assume a spurious error e.g. WiFi jumpiness */ ;
+							}
+						}
 					}
-					uplink.receive (packet_dn);
-					int dnlen = packet_dn.getLength ();
-					if (dnlen > 0) {
-						downlink_wr.write (packet_dn.getData (), 0, dnlen);
+					synchronized (this) {
+						if ((uplink == null) || (downlink_wr == null)) {
+							break;
+						}
+						try {
+							uplink.receive (packet_dn);
+							dnlen = packet_dn.getLength ();
+							downlink_wr.write (packet_dn.getData (), 0, dnlen);
+						} catch (SocketTimeoutException ste) {
+							dnlen = 0;
+						}
 					}
 					if (uplen + dnlen == 0) {
 						try {
@@ -91,7 +127,7 @@ public final class TunnelService extends VpnService {
 		;
 	}
 	
-	public TunnelService (DatagramSocket uplink_socket, SocketAddress publicserver) {
+	public TunnelService (DatagramSocket uplink_socket, InetSocketAddress publicserver) {
 		//
 		// Create a VPN builder object
 		Builder builder;
@@ -126,28 +162,41 @@ public final class TunnelService extends VpnService {
 //		builder.addRoute ("2001:67c:127c::", 64);
 		builder.addRoute ("::", 0);
 		fio = builder.establish ();
+		try {
+			uplink_socket.setSoTimeout (1);
+		} catch (SocketException se) {
+			throw new RuntimeException ("UDP socket refuses turbo mode", se);
+		}
 		synchronized (this) {
+			kas = new KeepAliveService (uplink_socket, publicserver);
 			downlink_rd = new FileInputStream  (fio.getFileDescriptor ());
 			downlink_wr = new FileOutputStream (fio.getFileDescriptor ());
 			uplink = uplink_socket;
 			tunserver = publicserver;
 			notifyAll ();
+			kas.start ();
 		}
 	}
 	
 	synchronized public void teardown () {
 		try {
-			if (downlink_rd != null) {
-				downlink_rd.close ();
-				downlink_rd = null;
-			}
-			if (downlink_wr != null) {
-				downlink_wr.close ();
-				downlink_wr = null;
-			}
-			if (fio != null) {
-				fio.close ();
-				fio = null;
+			synchronized (this) {
+				if (kas != null) {
+					kas.stop ();
+					kas = null;
+				}
+				if (downlink_rd != null) {
+					downlink_rd.close ();
+					downlink_rd = null;
+				}
+				if (downlink_wr != null) {
+					downlink_wr.close ();
+					downlink_wr = null;
+				}
+				if (fio != null) {
+					fio.close ();
+					fio = null;
+				}
 			}
 		} catch (IOException ioe) {
 			;
