@@ -42,7 +42,7 @@ public class Android6bed4 extends Activity {
 		super.onStart ();
 		if (debug != null) debug.setProgress (10);
 		try {
-			uplink = new DatagramSocket (FixedLocalSettings.public_udp_port);
+			uplink = new DatagramSocket ();
 		} catch (SocketException se) {
 			uplink = null;
 		}
@@ -123,6 +123,7 @@ public class Android6bed4 extends Activity {
 			//       of it... need to leave it like this for now.
 			downlink = new TunnelService (uplink, publicserver);
 			if (downlink != null) {
+				downlink = new TunnelService (); /*TODO:HUH?*/
 				//
 				// Given the successful startup, avoid future cleanups so the
 				// TunnelService can continue to use these resources.  It has

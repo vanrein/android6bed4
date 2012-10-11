@@ -10,6 +10,16 @@ call as I would have (and actually did) in C.  As a
 result, the tunnel must poll for traffic :'-(  So if I
 missed a Java trick here, *please* let me know.
 
+Version 0.4 is the first with dynamic addresses on
+the local end.  There is no longer a need to specify
+the external IPv4 address and UDP port, which was
+there for testing purposes of early versions anyway.
+This release is a candidate implementation that is
+basically v00-ish -- it sends RouterSol and gets
+RouterAdv from the public server, and processes it
+in the v01 way.  It will however not do the new v01
+features of Neighbor Discovery for direct peer links.
+
 Version 0.3.1 fixes a small problem, namely that the
 6bed4 application could not go away because it was
 too tightly coupled to the tunnel.  The application
