@@ -10,6 +10,13 @@ call as I would have (and actually did) in C.  As a
 result, the tunnel must poll for traffic :'-(  So if I
 missed a Java trick here, *please* let me know.
 
+Version 0.5 introduces Neighbor Solicitation and
+Neighbor Advertisement messages to try and pass through
+NAT and firewall layers, as per draft v01.  This means
+that peer-to-peer connectivity is usually possible; the
+only ones excepted are those who are behind symmetric
+NAT; such people should get a decent ISP/router anyway!
+
 Version 0.4 is the first with dynamic addresses on
 the local end.  There is no longer a need to specify
 the external IPv4 address and UDP port, which was
@@ -55,8 +62,9 @@ Future versions might be even more useful:
  0.2 :- VPN properly claimed, also on 1st start
  0.3 :- Tunnel IPv6 from *fixed* IPv4 address
  0.4 :- Use RtrSol/RtrAdv for autoconfig (v00)
- 0.5 :- Use NgbAdv/NgbAdv for peering (v01)
- 0.6 :- ??? Redirect native through 6bed4 (v02)
+ 0.5 :- Use NgbAdv/NgbAdv for generic peering (v01)
+ 0.6 :- Use TCP SYN/ACK for optimistic peering (v02)  
+ 0.7 :- ??? Redirect native through 6bed4 (v02?)
  1.0 :- Add artwork and a spiffy webpage
 
 Cheers,

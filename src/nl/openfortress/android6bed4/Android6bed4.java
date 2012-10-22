@@ -22,14 +22,14 @@ public class Android6bed4 extends Activity {
 	public InetSocketAddress publicserver;
 	
 	/*
-	 * State management interface, called from Android OS.  The onXXX() conform to a state diagram.
+	 * State management interface, called from Android OS.  Thee onXXX() conform to a state diagram.
 	 * 
 	 * @see http://developer.android.com/reference/android/app/Activity.html#SavingPersistentState
 	 */
 	protected void onCreate (Bundle savedInstanceState) {
 		super.onCreate (savedInstanceState);
 		try {
-			publicserver = new InetSocketAddress (Inet4Address.getByName ("145.136.0.1"), 25788);
+			publicserver = new InetSocketAddress (Inet4Address.getByName ("145.136.0.1"), 25788); /* TODO:FIXED */
 		} catch (UnknownHostException uhe) {
 			publicserver = null;
 		}
@@ -42,7 +42,7 @@ public class Android6bed4 extends Activity {
 		super.onStart ();
 		if (debug != null) debug.setProgress (10);
 		try {
-			uplink = new DatagramSocket ();
+			uplink = new DatagramSocket (0xdebe); /* TODO:FIXED */
 		} catch (SocketException se) {
 			uplink = null;
 		}

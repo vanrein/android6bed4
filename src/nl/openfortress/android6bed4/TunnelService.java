@@ -5,6 +5,8 @@ import android.os.ParcelFileDescriptor;
 
 import java.net.*;
 import java.io.*;
+import java.util.Collection;
+import java.util.Iterator;
 
 
 public final class TunnelService extends VpnService {
@@ -16,10 +18,13 @@ public final class TunnelService extends VpnService {
 	static private InetSocketAddress tunserver = null;
 	static private DatagramSocket uplink = null;
 
+	static private EventListener netmon = null;
+	static private NeighborCache ngbcache = null;
+	
 	static private boolean new_setup_defaultroute = true;
 	static private boolean     setup_defaultroute = false;
 	static byte new_local_address [] = new byte [16];
-	static byte     local_address [] = null;
+	static byte     local_address [] = new byte [16];
 	
 	static Worker worker;
 	static Maintainer maintainer;
@@ -29,6 +34,7 @@ public final class TunnelService extends VpnService {
 	//static final byte linklocal_all_routers [] = { (byte)0xff,(byte)0x02,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,2 };
 	
 	final static byte IPPROTO_ICMPV6 = 58;
+	final static byte IPPROTO_TCP = 6;
 	
 	final static byte ND_ROUTER_SOLICIT   = (byte) 133;
 	final static byte ND_ROUTER_ADVERT    = (byte) 134;
@@ -42,6 +48,7 @@ public final class TunnelService extends VpnService {
 	
 	final static int OFS_IP6_SRC        = 8;
 	final static int OFS_IP6_DST        = 24;
+	final static int OFS_IP6_PLEN       = 4;
 	final static int OFS_IP6_NXTHDR		= 6;
 	final static int OFS_IP6_HOPS		= 7;
 	
@@ -49,7 +56,15 @@ public final class TunnelService extends VpnService {
 	final static int OFS_ICMP6_CODE		= 40 + 1;
 	final static int OFS_ICMP6_CSUM		= 40 + 2;
 	final static int OFS_ICMP6_DATA		= 40 + 4;
+	
+	final static int OFS_ICMP6_NGBSOL_TARGET = 40 + 8;
+	final static int OFS_ICMP6_NGBADV_TARGET = 40 + 8;
+	final static int OFS_ICMP6_NGBADV_FLAGS  = 40 + 4;
 		
+	final static int OFS_TCP6_FLAGS	    = 13;
+	final static int TCP_FLAG_SYN		= 0x02;
+	final static int TCP_FLAG_ACK		= 0x01;
+	
 	final static byte router_solicitation [] = {
 			// IPv6 header
 			0x60, 0x00, 0x00, 0x00,
@@ -77,7 +92,12 @@ public final class TunnelService extends VpnService {
 		private int polling_millis_min =  1;
 		private int polling_millis_max = 50;
 		
-		public void handle_4to6_nd (byte pkt [], int pktlen) {
+		public void handle_4to6_nd (byte pkt [], int pktlen, SocketAddress src)
+		throws IOException, SocketException {
+			if (checksum_icmpv6 (pkt, 0) != fetch_net16 (pkt, OFS_ICMP6_CSUM)) {
+				// Checksum is off
+				return;
+			}
 			switch (pkt [OFS_ICMP6_TYPE]) {
 			//
 			// Handle Router Solicitation by dropping it -- this is a peer, not a router
@@ -138,28 +158,131 @@ public final class TunnelService extends VpnService {
 						new_local_address [8 + i] = pkt [OFS_IP6_DST + 8 + i]; 
 					}
 					//TODO// syslog (LOG_INFO, "%s: Assigning address %s to tunnel\n", program, v6prefix);
-					change_local_address ();  //TODO// parameters?
+					change_local_netconfig ();  //TODO// parameters?
 				}
 				return;
 			//
 			// Neighbor Solicitation is an attempt to reach us peer-to-peer, and should be responded to
 			case ND_NEIGHBOR_SOLICIT:
-				//TODO// Respnd to Neighbor Solicitation
+				if (pktlen < 24) {
+					// Too short to make sense
+					return;
+				}
+				if (memdiff_addr (pkt, OFS_ICMP6_NGBSOL_TARGET, local_address, 0)) {
+					// Neighbor Solicitation not aimed at me
+					return;
+				}
+				if (!ngbcache.is6bed4 (pkt, OFS_IP6_SRC)) {
+					// Source is not a 6bed4 address
+					return;
+				}
+				//
+				// Not checked here: IPv4/UDP source versus IPv6 source address (already done)
+				// Not checked here: LLaddr in NgbSol -- simply send back to IPv6 src address
+				//
+				memcp_address (pkt, OFS_IP6_DST, pkt, OFS_IP6_SRC);
+				memcp_address (pkt, OFS_IP6_SRC, local_address, 0);
+				pkt [OFS_ICMP6_TYPE] = ND_NEIGHBOR_ADVERT;
+				pkt [OFS_IP6_PLEN + 0] = 0;
+				pkt [OFS_IP6_PLEN + 1] = 8 + 16;
+				pkt [OFS_ICMP6_NGBADV_FLAGS] = 0x60;	// Solicited, Override
+				// Assume that OFS_ICMP6_NGBADV_TARGET == OFS_ICMP6_NGBSOL_TARGET
+				int csum = TunnelService.checksum_icmpv6 (pkt, 0);
+				pkt [OFS_ICMP6_CSUM + 0] = (byte) (csum >> 8  );
+				pkt [OFS_ICMP6_CSUM + 1] = (byte) (csum & 0xff);
+				DatagramPacket replypkt = new DatagramPacket (pkt, 0, 40 + 8 + 16, src);
+				uplink.send (replypkt);
+
+				//
+				// TODO:OLD Replicate the message over the tunnel link
+				//
+				// We should attach a Source Link-Layer Address, but
+				// we cannot automatically trust the one provided remotely.
+				// Also, we want to detect if routes differ, and handle it.
+				//
+				// 0. if no entry in the ngb.cache
+				//    then use 6bed4 server in ND, initiate ngb.sol to src.ll
+				//         impl: use 6bed4-server lladdr, set highest metric
+				// 1. if metric (ngb.cache) < metric (src.ll)
+				//    then retain ngb.cache, send Redirect to source
+				// 2. if metric (ngb.cache) > metric (src.ll)
+				//    then retain ngb.cache, initiate ngb.sol to src.ll
+				// 3. if metric (ngb.cache) == metric (src.ll)
+				//    then retain ngb.cache
+				//
+				//TODO// Handle ND_NEIGHBOR_SOLICIT (handle_4to6_nd)
 				return;
 			//
 			// Neighbor Advertisement may be in response to our peer-to-peer search
 			case ND_NEIGHBOR_ADVERT:
-				//TODO// Respond to Neighbor Advertisement
+                //
+                // Process Neighbor Advertisement coming in over 6bed4
+                // First, make sure it is against an item in the ndqueue
+				//
+				// Validate the Neighbor Advertisement
+				if (pktlen < 64) {
+					// Packet too small to hold ICMPv6 Neighbor Advertisement
+					return;
+				}
+				if ((pkt [OFS_ICMP6_TYPE] != ND_NEIGHBOR_ADVERT) || (pkt [OFS_ICMP6_CODE] != 0)) {
+					// ICMPv6 Type or Code is wrong
+					return;
+				}
+				if ((!ngbcache.is6bed4 (pkt, OFS_IP6_SRC)) || (!ngbcache.is6bed4 (pkt, OFS_IP6_DST))) {
+					// Source or Destination IPv6 address is not a 6bed4 address
+					return;
+				}
+				if (memdiff_addr (pkt, OFS_IP6_SRC, pkt, OFS_ICMP6_NGBADV_TARGET)) {
+					// NgbAdv's Target Address does not match IPv6 source
+					return;
+				}
+				//
+				// Not checked here: IPv4/UDP source versus IPv6 source address (already done)
+				//
+				ngbcache.received_neighbor_direct_acknowledgement (pkt, OFS_ICMP6_NGBADV_TARGET);
 				return;
+			//
 			// Route Redirect messages are not supported in 6bed4 draft v01
 			case ND_REDIRECT:
 				return;
 			}
 		}
 
+		/* Forward an IPv6 packet, wrapped into UDP and IPv4 in the 6bed4
+		 * way, as a pure IPv6 packet over the tunnel interface.  This is
+		 * normally a simple copying operation.  One exception exists for
+		 * TCP ACK packets; these may be in response to a "playful" TCP SYN
+		 * packet that was sent directly to the IPv4 recipient.  This is a
+		 * piggyback ride of the opportunistic connection efforts on the
+		 * 3-way handshake for TCP, without a need to modify the packets!
+		 * The only thing needed to make that work is to report success
+		 * back to the Neighbor Cache, in cases when TCP ACK comes back in
+		 * directly from the remote peer.
+		 * 
+		 * Note that nothing is stopping an ACK packet that is meaningful
+		 * to us from also being a SYN packet that is meaningful to the
+		 * remote peer.  We will simply do our thing and forward any ACK
+		 * to the most direct route we can imagine -- which may well be
+		 * the sender, _especially_ since we opened our 6bed4 port to the
+		 * remote peer when sending our playful initial TCP packet.
+		 * 
+		 * Observing the traffic on the network, this may well look like
+		 * magic!  All you see is plain TCP traffic crossing over directly
+		 * if it is possible --and bouncing one or two packets through the
+		 * tunnel otherwise-- and especially in the case where it can work
+		 * directly it will be a surprise.  Servers are therefore strongly
+		 * encouraged to setup port forwarding for their 6bed4 addresses,
+		 * or just open a hole in full cone NAT/firewall setups.  This will
+		 * mean zero delay and zero bypasses for 6bed4 on the majority of
+		 * TCP connection initiations between 6bed4 peers!
+		 */
 		public void handle_4to6_plain (byte pkt [], int pktlen)
 		throws IOException {
-			downlink_wr.write (pkt, 0, pktlen);
+			if (downlink_wr != null) {
+				downlink_wr.write (pkt, 0, pktlen);
+			}
+			boolean tcpack = (pkt [OFS_IP6_NXTHDR] == IPPROTO_TCP) && ((pkt [OFS_TCP6_FLAGS] & TCP_FLAG_ACK) != 0x00);
+			//TODO// report back if this is a success, that is, a tcpack packet
 		}
 		
 		public void handle_4to6 (DatagramPacket datagram)
@@ -177,36 +300,12 @@ public final class TunnelService extends VpnService {
 			if ((pkt [OFS_IP6_NXTHDR] == IPPROTO_ICMPV6) && (pkt [OFS_ICMP6_TYPE] >= ND_LOWEST) && (pkt [OFS_ICMP6_TYPE] <= ND_HIGHEST)) {
 				//
 				// Not Plain: Router Adv/Sol, Neighbor Adv/Sol, Redirect
-				handle_4to6_nd (pkt, pktlen);
+				handle_4to6_nd (pkt, pktlen, datagram.getSocketAddress ());
 			} else {
 				//
 				// Plain Unicast or Plain Multicast (both may enter)
 				handle_4to6_plain (pkt, pktlen);
 			}
-		}
-
-		private void memcp_address (byte tgt [], int tgtofs, byte src [], int srcofs) {
-			for (int i=0; i<16; i++) {
-				tgt [tgtofs+i] = src [srcofs+i];
-			}
-		}
-		
-		private boolean memdiff_addr (byte one[], int oneofs, byte oth[], int othofs) {
-			for (int i=0; i<16; i++) {
-				if (one [oneofs + i] != oth [othofs + i]) {
-					return true;
-				}
-			}
-			return false;
-		}
-		
-		private boolean memdiff_halfaddr (byte one[], int oneofs, byte oth[], int othofs) {
-			for (int i=0; i<8; i++) {
-				if (one [oneofs + i] != oth [othofs + i]) {
-					return true;
-				}
-			}
-			return false;
 		}
 		
 		public void validate_originator (byte pkt [], InetSocketAddress originator)
@@ -226,9 +325,35 @@ public final class TunnelService extends VpnService {
 */
 		}
 
+		/* This routine passes IPv6 traffic from the tunnel interface on
+		 * to the 6bed4 interface where it is wrapped into UDP and IPv4.
+		 * The only concern for this is where to send it to -- should it
+		 * be sent to the tunnel server, or directly to the peer?  The
+		 * Neighbor Cache is consulted for advise.
+		 * 
+		 * A special flag exists to modify the behaviour of the response
+		 * to this inquiry.  This flag is used to signal that a first
+		 * packet might be tried directly, which should be harmless if
+		 * it fails and otherwise lead to optimistic connections if:
+		 *  1. the packet will repeat upon failure, and
+		 *  2. explicit acknowledgement can be reported to the cache
+		 * This is the case with TCP connection setup; during a SYN,
+		 * it is possible to be playful and try to send the first
+		 * packet directly.  A TCP ACK that returns directly from the
+		 * sender indicates that return traffic is possible, which is
+		 * then used to update the Neighbor Cache with positivism on
+		 * the return route.
+		 */
 		public void handle_6to4_plain_unicast (byte pkt [], int pktlen)
 		throws IOException {
-			uplink.send (new DatagramPacket (pkt, pktlen, tunserver));
+			InetSocketAddress target;
+			if ((ngbcache != null) && ngbcache.is6bed4 (pkt, 24)) {
+				boolean tcpsyn = (pkt [OFS_IP6_NXTHDR] == IPPROTO_TCP) && ((pkt [OFS_TCP6_FLAGS] & TCP_FLAG_SYN) != 0x00);
+				target = ngbcache.lookup_neighbor (pkt, 24, false);  //TODO// use tcpsyn as "playful" parameter
+			} else {
+				target = tunserver;
+			}
+			uplink.send (new DatagramPacket (pkt, pktlen, target));
 		}
 		
 		public void handle_6to4_nd (byte pkt [], int pktlen)
@@ -273,9 +398,8 @@ public final class TunnelService extends VpnService {
 			case ND_ROUTER_ADVERT:
 				return;
 			//
-			// Neighbor Solicitation is an attempt to reach a peer directly
+			// Neighbor Solicitation is not normally sent by the phone due to its /128 on 6bed4
 			case ND_NEIGHBOR_SOLICIT:
-				//TODO// Handle Neighbor Solicitation
 				return;
 			//
 			// Neighbor Advertisement is a response to a peer, and should be relayed
@@ -505,7 +629,7 @@ public final class TunnelService extends VpnService {
 	 *  - byte new_local_address [16]
 	 *  - boolean new_setup_defaultroute
 	 */
-	public void change_local_address () {
+	public void change_local_netconfig () {
 		Builder builder;
 		builder = new Builder ();
 		builder.setSession ("6bed4 uplink to IPv6");
@@ -526,8 +650,15 @@ public final class TunnelService extends VpnService {
 				; /* Uncommon: Fallback to garbage collection */
 			}
 		}
+		//
+		// Setup the address information for the current tunnel
 		setup_defaultroute = new_setup_defaultroute;
-		local_address = new_local_address;
+		memcp_address (local_address, 0, new_local_address, 0);
+		//
+		// Setup a new neighboring cache, possibly replacing an old one
+		ngbcache = new NeighborCache (uplink, tunserver, local_address);
+		//
+		// Now actually construct the tunnel as prepared
 		fio = builder.establish ();
 		try {
 			uplink.setSoTimeout (1);
@@ -543,7 +674,23 @@ public final class TunnelService extends VpnService {
 		}
 		maintainer.have_local_address (true);
 	}
-		
+	
+	public void notify_ipv6_addresses (Collection <byte []> addresslist) {
+		// See if the IPv6 address list causes a change to the wish for a default route through 6bed4
+		Iterator <byte []> adr_iter = addresslist.iterator();
+		new_setup_defaultroute = true;
+		while (adr_iter.hasNext ()) {
+			byte addr [] = adr_iter.next ();
+			if ((addr.length == 16) && memdiff_addr (addr, 0, local_address, 0)) {
+				new_setup_defaultroute = false;
+			}
+		}
+		// If the default route should change, change the local network configuration
+		if (new_setup_defaultroute != setup_defaultroute) {
+			change_local_netconfig ();
+		}
+	}
+	
 	public TunnelService (DatagramSocket uplink_socket, InetSocketAddress publicserver) {
 		synchronized (this) {
 			uplink = uplink_socket;
@@ -551,12 +698,20 @@ public final class TunnelService extends VpnService {
 			// notifyAll ();
 		}
 		//
+		// Setup a network monitor that will watch for broadcast events with network changes
+		if (netmon == null) {
+			netmon = new EventListener ();
+		}
+		netmon.register_network_monitor (this);
+		//
 		// Create the worker thread that will pass information back and forth
 		if (worker == null) {
 			worker = new Worker ();
 			worker.start ();
 		} else {
-			worker.notifyAll ();
+			synchronized (worker) {
+				worker.notifyAll ();
+			}
 		}
 		if (maintainer == null) {
 			maintainer = new Maintainer (tunserver);
@@ -569,6 +724,10 @@ public final class TunnelService extends VpnService {
 	synchronized public void teardown () {
 		try {
 			synchronized (this) {
+				if (netmon != null) {
+					netmon.unregister_network_monitor ();
+					netmon = null;
+				}
 				if (worker != null) {
 					worker.interrupt ();
 					worker = null;
@@ -597,6 +756,65 @@ public final class TunnelService extends VpnService {
 	
 	synchronized public void onRevoke () {
 		this.teardown ();
+	}
+
+
+	/***
+	 *** UTILITY FUNCTIONS
+	 ***/
+
+	public static void memcp_address (byte tgt [], int tgtofs, byte src [], int srcofs) {
+		for (int i=0; i<16; i++) {
+			tgt [tgtofs+i] = src [srcofs+i];
+		}
+	}
+	
+	public static boolean memdiff_addr (byte one[], int oneofs, byte oth[], int othofs) {
+		for (int i=0; i<16; i++) {
+			if (one [oneofs + i] != oth [othofs + i]) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	public static boolean memdiff_halfaddr (byte one[], int oneofs, byte oth[], int othofs) {
+		for (int i=0; i<8; i++) {
+			if (one [oneofs + i] != oth [othofs + i]) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/* Retrieve an unsigned 16-bit value from a given index in a byte array and
+	 * return it as an integer.
+	 */
+	public static int fetch_net16 (byte pkt [], int ofs16) {
+		int retval = ((int) pkt [ofs16]) << 8 & 0xff00;
+		retval = retval + (((int) pkt [ofs16+1]) & 0xff);
+		return retval;
+	}
+	
+	/* Fill in the ICMPv6 checksum field in a given IPv6 packet.
+	 */
+	public static int checksum_icmpv6 (byte pkt [], int pktofs) {
+		int plen = fetch_net16 (pkt, pktofs + OFS_IP6_PLEN);
+		int nxth = ((int) pkt [pktofs + 6]) & 0xff;
+		// Pseudo header is IPv6 src/dst (included with packet) and plen/nxth and zeroes:
+		int csum = plen + nxth;
+		int i;
+		for (i=8; i < 40+plen; i += 2) {
+			if (i != OFS_ICMP6_CSUM) {
+				// Skip current checksum value
+				csum += fetch_net16 (pkt, pktofs + i);
+			}
+		}
+		// No need to treat a trailing single byte: ICMPv6 has no odd packet lengths
+		csum = (csum & 0xffff) + (csum >> 16);
+		csum = (csum & 0xffff) + (csum >> 16);
+		csum = csum ^ 0xffff;	// 1's complement limited to 16 bits
+		return csum;
 	}
 	
 }
