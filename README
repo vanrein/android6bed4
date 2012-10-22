@@ -62,7 +62,7 @@ Future versions might be even more useful:
  0.2 :- VPN properly claimed, also on 1st start
  0.3 :- Tunnel IPv6 from *fixed* IPv4 address
  0.4 :- Use RtrSol/RtrAdv for autoconfig (v00)
- 0.5 :- Use NgbAdv/NgbAdv for generic peering (v01)
+ 0.5 :- Use NgbSol/NgbAdv for generic peering (v01)
  0.6 :- Use TCP SYN/ACK for optimistic peering (v02)  
  0.7 :- ??? Redirect native through 6bed4 (v02?)
  1.0 :- Add artwork and a spiffy webpage
