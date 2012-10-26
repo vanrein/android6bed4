@@ -8,14 +8,24 @@ are non-blocking, making it impossible to wait for its
 I/O.  Furthermore, I found no way to use the select()
 call as I would have (and actually did) in C.  As a
 result, the tunnel must poll for traffic :'-(  So if I
-missed a Java trick here, *please* let me know.
+missed a Java trick here, *please* let me know.  It
+will greatly help in speeding up the tunnel *and* make
+it less of a battery suckling.
+
+Version 0.5.2 introduces a lot of new code, so don't
+run your lifeline over it, okay?  It adds an initial
+GUI with toggles (default route does not work yet, and
+autostart after boot is a shamble too) but the IP and
+UDP settings do work.  If you change a lot quickly in
+a sequence, someone might get upset.  Also, this is a
+first stab at the TCP bypassing system.
 
 Version 0.5 introduces Neighbor Solicitation and
 Neighbor Advertisement messages to try and pass through
 NAT and firewall layers, as per draft v01.  This means
 that peer-to-peer connectivity is usually possible; the
 only ones excepted are those who are behind symmetric
-NAT; such people should get a decent ISP/router anyway!
+NAT; such people should get a decent ISP/router anyway! 
 
 Version 0.4 is the first with dynamic addresses on
 the local end.  There is no longer a need to specify

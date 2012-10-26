@@ -2,6 +2,7 @@ package nl.openfortress.android6bed4;
 
 import android.net.VpnService;
 import android.os.ParcelFileDescriptor;
+import android.util.Log;
 
 import java.net.*;
 import java.io.*;
@@ -11,14 +12,17 @@ import java.util.Iterator;
 
 public final class TunnelService extends VpnService {
 
+	private static final String TAG = "android6bed4.TunnelService";
+	
+	static private TunnelService singular_instance = null;
+	
 	static private ParcelFileDescriptor fio = null;
 	static private FileInputStream  downlink_rd = null;
 	static private FileOutputStream downlink_wr = null;
 
 	static private InetSocketAddress tunserver = null;
-	static private DatagramSocket uplink = null;
+	static public DatagramSocket uplink = null;
 
-	static private EventListener netmon = null;
 	static private NeighborCache ngbcache = null;
 	
 	static private boolean new_setup_defaultroute = true;
@@ -159,6 +163,7 @@ public final class TunnelService extends VpnService {
 					}
 					//TODO// syslog (LOG_INFO, "%s: Assigning address %s to tunnel\n", program, v6prefix);
 					change_local_netconfig ();  //TODO// parameters?
+					Log.i (TAG, "Assigned address to tunnel");
 				}
 				return;
 			//
@@ -239,7 +244,7 @@ public final class TunnelService extends VpnService {
 				//
 				// Not checked here: IPv4/UDP source versus IPv6 source address (already done)
 				//
-				ngbcache.received_neighbor_direct_acknowledgement (pkt, OFS_ICMP6_NGBADV_TARGET);
+				ngbcache.received_peer_direct_acknowledgement (pkt, OFS_ICMP6_NGBADV_TARGET, false);
 				return;
 			//
 			// Route Redirect messages are not supported in 6bed4 draft v01
@@ -281,8 +286,15 @@ public final class TunnelService extends VpnService {
 			if (downlink_wr != null) {
 				downlink_wr.write (pkt, 0, pktlen);
 			}
-			boolean tcpack = (pkt [OFS_IP6_NXTHDR] == IPPROTO_TCP) && ((pkt [OFS_TCP6_FLAGS] & TCP_FLAG_ACK) != 0x00);
-			//TODO// report back if this is a success, that is, a tcpack packet
+			//
+			// If this is a successful peering attempt, that is, a tcpack packet, report that back
+			// Note that the UDP/IPv4 source has already been validated against the IPv6 source
+			boolean tcpack = (pktlen >= 40 + 20) && (pkt [OFS_IP6_NXTHDR] == IPPROTO_TCP) && ((pkt [OFS_TCP6_FLAGS] & TCP_FLAG_ACK) != 0x00);
+			if (tcpack) {
+				if (ngbcache.is6bed4 (pkt, OFS_IP6_SRC)) {
+					ngbcache.received_peer_direct_acknowledgement (pkt, OFS_IP6_SRC, true);
+				}
+			}
 		}
 		
 		public void handle_4to6 (DatagramPacket datagram)
@@ -349,7 +361,7 @@ public final class TunnelService extends VpnService {
 			InetSocketAddress target;
 			if ((ngbcache != null) && ngbcache.is6bed4 (pkt, 24)) {
 				boolean tcpsyn = (pkt [OFS_IP6_NXTHDR] == IPPROTO_TCP) && ((pkt [OFS_TCP6_FLAGS] & TCP_FLAG_SYN) != 0x00);
-				target = ngbcache.lookup_neighbor (pkt, 24, false);  //TODO// use tcpsyn as "playful" parameter
+				target = ngbcache.lookup_neighbor (pkt, 24, tcpsyn);
 			} else {
 				target = tunserver;
 			}
@@ -539,7 +551,9 @@ public final class TunnelService extends VpnService {
 					DatagramPacket rtrsol = new DatagramPacket (router_solicitation, router_solicitation.length, tunserver);
 					uplink.send (rtrsol);
 				} catch (IOException ioe) {
-					throw new RuntimeException ("Network failure", ioe);
+					/* Network is probably down, so don't
+					 * throw new RuntimeException ("Network failure", ioe);
+					 */
 				}
 			}
 		}
@@ -553,8 +567,10 @@ public final class TunnelService extends VpnService {
 			if ((keepalive_packet != null) && (uplink != null)) {
 				try {
 					uplink.send (keepalive_packet);
+					Log.i (TAG, "Sent KeepAlive (empty UDP) to Tunnel Server");
 				} catch (IOException ioe) {
-					;	/* Better luck next time? */
+					;	/* Network is probably down; order reconnect to tunnel server */
+					have_lladdr = false;
 				}
 			}
 		}
@@ -570,10 +586,15 @@ public final class TunnelService extends VpnService {
 					maintenance_time_cycle = maintenance_time_cycle_max;
 				}
 				//TODO// syslog (LOG_INFO, "Sent Router Advertisement to Public 6bed4 Service, next attempt in %d seconds\n", maintenance_time_cycle);
+				Log.i (TAG, "Sent Router Advertisement to Tunnel Server");
 			} else {
 				//TODO// syslog (LOG_INFO, "Sending a KeepAlive message (empty UDP) to the 6bed4 Router\n");
 				keepalive ();
-				maintenance_time_cycle = maintenance_time_cycle_max;
+				if (have_lladdr) {
+					maintenance_time_cycle = maintenance_time_cycle_max;
+				} else {
+					maintenance_time_cycle = 1;
+				}
 			}
 			maintenance_time_millis = System.currentTimeMillis () + 1000 * (long) maintenance_time_cycle;
 		}
@@ -641,7 +662,10 @@ public final class TunnelService extends VpnService {
 			throw new RuntimeException ("6bed4 address rejected", uhe);
 		}
 		if (new_setup_defaultroute) {
+			Log.i (TAG, "Creating default route through 6bed4 tunnel");
 			builder.addRoute ("::", 0);
+		} else {
+			Log.i (TAG, "Skipping default route through 6bed4 tunnel");
 		}
 		if (fio != null) {
 			try {
@@ -698,11 +722,8 @@ public final class TunnelService extends VpnService {
 			// notifyAll ();
 		}
 		//
-		// Setup a network monitor that will watch for broadcast events with network changes
-		if (netmon == null) {
-			netmon = new EventListener ();
-		}
-		netmon.register_network_monitor (this);
+		// Setup a link to the instance of this singular class, for use in the EventMonitor
+		singular_instance = this;
 		//
 		// Create the worker thread that will pass information back and forth
 		if (worker == null) {
@@ -721,13 +742,14 @@ public final class TunnelService extends VpnService {
 		}
 	}
 	
+	public static TunnelService theTunnelService () {
+		return singular_instance;
+	}
+	
 	synchronized public void teardown () {
 		try {
 			synchronized (this) {
-				if (netmon != null) {
-					netmon.unregister_network_monitor ();
-					netmon = null;
-				}
+				singular_instance = null;
 				if (worker != null) {
 					worker.interrupt ();
 					worker = null;

@@ -104,7 +104,7 @@ class NeighborCache {
 	 * to find a more evolved value; the latter will be incorporated into
 	 * the procedures of the Neighbor Cache, including the various queues.
 	 */
-	private Hashtable <Neighbor, Neighbor> neighbor_cache;
+	private Hashtable <Integer, Neighbor> neighbor_cache;
 	
 	
 	/* The public server, used as default return value for queires after
@@ -139,7 +139,7 @@ class NeighborCache {
 		for (int i=0; i < NUM_NGB_STATES; i++) {
 			queues [i] = new NeighborQueue (this, i);
 		}
-		neighbor_cache = new Hashtable <Neighbor,Neighbor> ();
+		neighbor_cache = new Hashtable <Integer,Neighbor> ();
 	}
 
 	/* Remove an expired entry from the neighbor cache.
@@ -171,7 +171,7 @@ class NeighborCache {
 	 *  still tried towards the remote peer, until something comes back
 	 *  directly to acknowledge contact.  When something comes back over
 	 *  a direct route, this should be reported to the neighbor cache
-	 *  through received_neighbor_direct_acknowledgement() so it can
+	 *  through received_peer_direct_acknowledgement() so it can
 	 *  learn that future traffic can be directly sent to the peer.
 	 *  
 	 * A common case for which this holds is TCP connection setup:
@@ -211,12 +211,12 @@ class NeighborCache {
 		Neighbor ngb;
 		byte seeker_key [] = new byte [6];
 		address2key (addr, addrofs, seeker_key);	//TODO// Only used for seeker creation?
-		Neighbor seeker = new Neighbor (seeker_key);
+		int seeker_hash = key2hash (seeker_key);
 		synchronized (neighbor_cache) {
-			ngb = neighbor_cache.get (seeker);
+			ngb = neighbor_cache.get (seeker_hash);
 			if (ngb == null) {
-				ngb = new Neighbor (seeker_key);	//TODO// Possibly seeker.clone ()
-				neighbor_cache.put (ngb, ngb);
+				ngb = new Neighbor (seeker_key, playful);	//TODO// Possibly seeker.clone ()
+				neighbor_cache.put (seeker_hash, ngb);
 				puppy = true;
 			}
 		}
@@ -259,16 +259,21 @@ class NeighborCache {
 			// There is no work to be done to that end.
 			return ngb.target;
 		default:
-			return null;
+			return public_server;
 		}
 	}
 	
 	/* Send a Neighbor Solicitation to the peer.  When this succeeds at
 	 * penetrating to the remote peer's 6bed4 stack, then a Neighbor
 	 * Advertisement will return, and be reported through the method
-	 * NeighborCache.received_neighbor_direct_acknowledgement() so the
+	 * NeighborCache.received_peer_direct_acknowledgement() so the
 	 * cache can update its state, and support direct sending to the
 	 * remote peer.  
+	 * 
+	 * Even though this kind of message may be sent after failed
+	 * playful attempts, it still does not rule out the possibility
+	 * of any such attempts returning, so the "playful" flag for
+	 * the Neighbor solicited is not changed.
 	 */
 	public void solicit_neighbor (Neighbor ngb) {
 		byte key [] = new byte [6];
@@ -314,16 +319,28 @@ class NeighborCache {
 	/* The TunnelServer reports having received a neighbor advertisement
 	 * by calling this function.  This may signal the cache that the
 	 * corresponding cache entry needs updating.
+	 * 
+	 * The "playful" flag is used to indicate that the acknowledgement
+	 * arrived as part of a playful attempt in lookup_neighbor().  This
+	 * information is used to determine if resends have taken place
+	 * through the tunnel server.  If such resends were sent, then it
+	 * is not safe anymore to assume that a one-to-one exchange has
+	 * taken place, and it becomes necessary to rely on the generic
+	 * mechanism of Neighbor Discovery to detect the ability for direct
+	 * contact between peers.
 	 */
-	public void received_neighbor_direct_acknowledgement (byte addr [], int addrofs) {
+	public void received_peer_direct_acknowledgement (byte addr [], int addrofs, boolean playful) {
 		Neighbor ngb;
 		byte key [] = new byte [6];
 		address2key (addr, addrofs, key);
-		Neighbor seeker = new Neighbor (key);
+		int seeker_hash = key2hash (key);
 		synchronized (neighbor_cache) {
-			ngb = neighbor_cache.get (seeker);
+			ngb = neighbor_cache.get (seeker_hash);
 		}
 		if (ngb == null) {
+			return;
+		}
+		if (playful && !ngb.playful) {
 			return;
 		}
 		int nst = ngb.state;
@@ -377,11 +394,12 @@ class NeighborCache {
 	 * 
 	 * TODO: Inner class -- does that mean that the context is copied into this object?  That'd be wasteful!
 	 */
-	class Neighbor {
+	static class Neighbor {
 		protected int state;
 		protected InetSocketAddress target;
 		protected long timeout;
 		byte key [];
+		boolean playful;
 		
 		/* The hashCode for this object depends solely on the key value.
 		 * Integrate all the bits of the key for optimal spreading.  The
@@ -414,17 +432,18 @@ class NeighborCache {
 		}
 		
 		/* Construct a new Neighbor based on its 6-byte key */
-		public Neighbor (byte fromkey []) {
+		public Neighbor (byte fromkey [], boolean create_playfully) {
 			key = new byte [6];
 			for (int i=0; i<6; i++) {
 				key [i] = fromkey [i];
 			}
 			state = NeighborCache.ATTEMPT1;
 			target = key2socketaddress (key);
+			playful = create_playfully;
 		}
 	}
 	
-	/* The NeighborQueue subclass represents a timer queue.  The objects in this
+	/* The NeighborQueue inner class represents a timer queue.  The objects in this
 	 * queue each have their own timeouts, as specified by state_timing_millis.
 	 * New entries are attached to the back, timeouts are picked up at the front.
 	 * 
@@ -660,7 +679,7 @@ class NeighborCache {
 	/* Map an address to a 6-byte key in the provided space.  Assume that the
 	 * address is known to be a 6bed4 address.
 	 */
-	public void address2key (byte addr [], int addrofs, byte key []) {
+	private static void address2key (byte addr [], int addrofs, byte key []) {
 		key [0] = (byte) (addr [addrofs +  8] ^ 0x02);
 		key [1] = addr [addrofs +  9];
 		key [2] = addr [addrofs + 10];
@@ -671,7 +690,7 @@ class NeighborCache {
 
 	/* Map an InetSocketAddress to a 6-byte key in the provided space.
 	 */
-	public void socketaddress2key (InetSocketAddress sa, byte key []) {
+	private static void socketaddress2key (InetSocketAddress sa, byte key []) {
 		int port = sa.getPort ();
 		byte addr [] = sa.getAddress ().getAddress ();
 		key [0] = (byte) (port & 0xff);
@@ -684,7 +703,7 @@ class NeighborCache {
 
 	/* Map a key to an IPv6 address, following the 6bed4 structures.
 	 */
-	public void key2ipv6address (byte key [], byte addr [], int addrofs) {
+	private void key2ipv6address (byte key [], byte addr [], int addrofs) {
 		for (int i=0; i<8; i++) {
 			addr [addrofs + i] = address_6bed4 [i];
 		}
@@ -700,7 +719,7 @@ class NeighborCache {
 
 	/* Map a key to an InetSocketAddress.
 	 */
-	public InetSocketAddress key2socketaddress (byte key []) {
+	private static InetSocketAddress key2socketaddress (byte key []) {
 		int port = (int) (key [0] & 0xff);
 		port = port | (((int) (key [1] << 8)) & 0xff00);
 		byte v4addr [] = new byte [4];
@@ -716,7 +735,7 @@ class NeighborCache {
 		}
 	}
 	
-	public int key2hash (byte key []) {
+	private static int key2hash (byte key []) {
 		int retval;
 		retval = key [0] ^ key [3];
 		retval <<= 8;

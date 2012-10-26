@@ -1,22 +1,63 @@
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent" >
-    
-    <TextView xmlns:tools="http://schemas.android.com/tools"
+    android:layout_height="match_parent"
+    android:orientation="vertical" >
+
+    <TextView
+        android:paddingTop="25sp"
+        xmlns:tools="http://schemas.android.com/tools"
+        android:id="@+id/textView1"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_centerHorizontal="true"
-        android:layout_centerVertical="true"
-        android:text="@string/welcome_6bed4"
+        android:text="@string/tunserver_address"
         tools:context=".Android6bed4" />
 
-    <ProgressBar
-        android:id="@+id/progress_bar"
-        style="?android:attr/progressBarStyleHorizontal"
+    <EditText
+        android:id="@+id/tunserver_ip_string"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="phone"
+        android:hint="@string/tunserver_address_hint" />
+    
+    <TextView
+        android:paddingTop="25sp"
+        xmlns:tools="http://schemas.android.com/tools"
+        android:id="@+id/textView2"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentRight="true" />    
+        android:text="@string/tunclient_port"
+        tools:context=".Android6bed4" />
 
-</RelativeLayout>
+    <EditText
+        android:id="@+id/tunclient_port_number"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/tunclient_port_hint"
+        android:inputType="number" />
+    
+    <Switch
+        android:paddingTop="25sp"
+        android:id="@+id/overtake_default_route"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:onClick="onDefaultRouteClick"
+        android:text="@string/overtake_default_route_text" />
+
+    <Switch
+        android:paddingTop="25sp"
+        android:id="@+id/persist_accross_reboots"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:onClick="onPersistClick"
+        android:text="@string/persist_accross_reboots_text" />
+    
+    <Switch
+        android:id="@+id/enable_6bed4"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:onClick="onEnablerClick"
+        android:paddingTop="25sp"
+        android:text="@string/enable_button_text" />
+
+</LinearLayout>
