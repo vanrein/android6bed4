@@ -43,7 +43,7 @@ public class EventMonitor extends BroadcastReceiver {
 		String act = intent.getAction ();
 		TunnelService tunsvc = TunnelService.theTunnelService ();
 	
-/* TODO: MALFUNCTIONING NETWORK ADDRESS PICKUPS?
+/* TODO: MALFUNCTIONING NETWORK ADDRESS PICKUPS?  FOR NOW, MANUAL SETUP OF DEFAULTROUTE (UNAVAILABLE DATA IN ANDROID)
 		if (act.equals (ConnectivityManager.CONNECTIVITY_ACTION)) {
 			//
 			// The Network Configuration has changed.
@@ -95,6 +95,7 @@ public class EventMonitor extends BroadcastReceiver {
 			// main.addCategory (Intent.CATEGORY_HOME);
 			main.addCategory (Intent.CATEGORY_LAUNCHER);
 			main.setComponent (new ComponentName (ctx, Android6bed4.class));
+			main.putExtra ("am_booting", true);
 			ctx.startActivity (main);
 			Log.v (TAG, "Boot action completed");
 		}

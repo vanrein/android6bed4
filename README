@@ -3,6 +3,13 @@ README for Android-6bed4
 
 This is an implementation of the 6bed4 tunnel on Android.
 
+There is a possibility to set a client side port.  This
+is useful for server applications, but after a crash it
+may take up to a minute for the port to be free again.
+Use it for server mode operation, to keep the IPv6 address
+as constant as the IPv4 address and NAT mapping; do not
+use it for client-only operations.
+
 I am shocked; the file descriptors created by the VPN
 are non-blocking, making it impossible to wait for its
 I/O.  Furthermore, I found no way to use the select()

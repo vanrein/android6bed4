@@ -141,6 +141,13 @@ class NeighborCache {
 		}
 		neighbor_cache = new Hashtable <Integer,Neighbor> ();
 	}
+	
+	/* Destroy a neighbor cache */
+	public void cleanup () {
+		for (int i=0; i < NUM_NGB_STATES; i++) {
+			queues [i].interrupt ();
+		}
+	}
 
 	/* Remove an expired entry from the neighbor cache.
 	 */
@@ -464,7 +471,7 @@ class NeighborCache {
 		}
 		
 		public void run () {
-			while (true) {
+			while (!isInterrupted ()) {
 				//
 				// First, fetch the head element (or wait for one to appear).
 				// Sample its timeout.  Even if the head disappears later on,
@@ -477,8 +484,8 @@ class NeighborCache {
 						if (head == null) {
 							try {
 								queue.wait ();
-							} catch (InterruptedException io) {
-								;
+							} catch (InterruptedException ie) {
+								return;
 							}
 						}
 					}
@@ -498,7 +505,7 @@ class NeighborCache {
 					try {
 						sleep (timeout - System.currentTimeMillis ());
 					} catch (InterruptedException ie) {
-						;
+						return;
 					}
 				}
 				//

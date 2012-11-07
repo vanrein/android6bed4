@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="nl.openfortress.android6bed4"
     android:versionCode="5"
-    android:versionName="0.5.2" >
+    android:versionName="0.5.3" >
 
     <uses-sdk
         android:minSdkVersion="14"
@@ -17,7 +17,8 @@
         
         <activity
             android:name=".Android6bed4"
-            android:label="@string/title_activity_main" >
+            android:label="@string/title_activity_main"
+            android:launchMode="standard" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -38,7 +39,12 @@
         	android:label="BootReceiver">
         	<intent-filter>
             	<action android:name="android.intent.action.BOOT_COMPLETED" />
+<!--
+There is no automatic response to network changes yet.  This could be useful in future versions:
+ - when IPv4 addresses change (roaming) the IPv6 could be changed before network failure causes it to happen
+ - When IPv6 addresses change, it could be assumed that a native route is present and could be preferred (Android supplies no routing information?)         
             	<action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+-->            
         	</intent-filter>
     	</receiver>
     	       

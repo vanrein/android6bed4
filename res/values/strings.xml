@@ -8,6 +8,7 @@
     <string name="tunserver_address_hint">145.136.0.1</string>
     <string name="tunclient_port_hint">(random)</string>
     <string name="persist_accross_reboots_text">Autostart after reboot</string>
-    <string name="overtake_default_route_text">Pass all IPv6 through 6bed4</string>
+    <string name="overtake_default_route_text">Send all IPv6 through 6bed4</string>
     <string name="enable_button_text">Enable the 6bed4 tunnel</string>
+    <string name="advanced_settings">Advanced Settings</string>
 </resources>

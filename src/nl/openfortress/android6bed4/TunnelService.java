@@ -3,6 +3,7 @@ package nl.openfortress.android6bed4;
 import android.net.VpnService;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
+import android.content.SharedPreferences;
 
 import java.net.*;
 import java.io.*;
@@ -10,7 +11,10 @@ import java.util.Collection;
 import java.util.Iterator;
 
 
-public final class TunnelService extends VpnService {
+public final class TunnelService
+extends VpnService
+implements SharedPreferences.OnSharedPreferenceChangeListener
+{
 
 	private static final String TAG = "android6bed4.TunnelService";
 	
@@ -20,15 +24,19 @@ public final class TunnelService extends VpnService {
 	static private FileInputStream  downlink_rd = null;
 	static private FileOutputStream downlink_wr = null;
 
-	static private InetSocketAddress tunserver = null;
-	static public DatagramSocket uplink = null;
+	static private InetSocketAddress     tunserver = null;
+	static private InetSocketAddress new_tunserver = null;
+	static private DatagramSocket     uplink = null;
+	static private DatagramSocket new_uplink = null;
 
-	static private NeighborCache ngbcache = null;
-	
 	static private boolean new_setup_defaultroute = true;
 	static private boolean     setup_defaultroute = false;
 	static byte new_local_address [] = new byte [16];
 	static byte     local_address [] = new byte [16];
+
+	static private NeighborCache ngbcache = null;
+	
+	static SharedPreferences prefs;
 	
 	static Worker worker;
 	static Maintainer maintainer;
@@ -162,7 +170,7 @@ public final class TunnelService extends VpnService {
 						new_local_address [8 + i] = pkt [OFS_IP6_DST + 8 + i]; 
 					}
 					//TODO// syslog (LOG_INFO, "%s: Assigning address %s to tunnel\n", program, v6prefix);
-					change_local_netconfig ();  //TODO// parameters?
+					update_local_netconfig ();
 					Log.i (TAG, "Assigned address to tunnel");
 				}
 				return;
@@ -477,7 +485,7 @@ public final class TunnelService extends VpnService {
 			 * 
 			 * Rick van Rein, October 2012.
 			 */
-			while (true) {
+			while (!isInterrupted ()) {
 				int uplen = 0;
 				boolean nothingdown;
 				synchronized (this) {
@@ -514,14 +522,14 @@ public final class TunnelService extends VpnService {
 					}
 				}
 				if ((uplen == 0) || nothingdown) {
+					polling_millis <<= 1;
+					if (polling_millis > polling_millis_max) {
+						polling_millis = polling_millis_max;
+					}
 					try {
-						polling_millis <<= 1;
-						if (polling_millis > polling_millis_max) {
-							polling_millis = polling_millis_max;
-						}
 						sleep (polling_millis);
 					} catch (InterruptedException ie) {
-						;	// Great, let's move on!
+						return;
 					}
 				} else {
 					polling_millis = polling_millis_min;
@@ -613,23 +621,29 @@ public final class TunnelService extends VpnService {
 			}
 		}
 		
+		/* See if a local address has been setup.
+		 */
+		public boolean have_local_address () {
+			return have_lladdr;
+		}
+
 		/* Run the regular maintenance thread.  This involves sending KeepAlives
 		 * and possibly requesting a local address through Router Solicitation.
 		 */
 		public void run () {
 			try {
-				while (true) {
+				while (!isInterrupted ()) {
 					regular_maintenance ();
 					sleep (maintenance_time_millis - System.currentTimeMillis());
 				}
 			} catch (InterruptedException ie) {
-				;
+				return;
 			}
 		}
 		
-		/* Construct the Maintainer thread.
+		/* Change the tunnel server addressed by the Maintainer thread
 		 */
-		public Maintainer (SocketAddress server) {
+		public void change_tunnel_server (SocketAddress server) {
 			byte payload [] = { };
 			if (server != null) {
 				try {
@@ -638,10 +652,116 @@ public final class TunnelService extends VpnService {
 					keepalive_packet = null;
 				}
 			}
+			have_local_address (false);
+		}
+		
+		/* Construct the Maintainer thread.
+		 */
+		public Maintainer () {
+			;
 		}
 	}
 	
-	public TunnelService () {
+	/* Process changes in the preferences, as they can be made asynchronously in the Android6bed4 service.
+	 * 
+	 * Approach: Assume that preferences may have been set, or that this is the first running time.  The
+	 * Android6bed4 Activity will ensure invoking this routine once, when switching to an enabled tunnel
+	 * service, even at boot time.  At this time, all settings of use to the TunnelService are certain
+	 * to have been initialised -- so no assumptions about default values have to be made.
+	 * 
+	 * This routine ignores the key handed over, and will simply go over the offered values and setup
+	 * the tunnel.  Any existing values are retained if possible; for instance, if the UDP port is already
+	 * bound, then its handle will be recycled if the port number is the same (or the new port permits any
+	 * port number because it is unset/random).
+	 * 
+	 * TODO: It would be nice if the breakdown of the TunnelService would be reported back to the
+	 * Activity.  Perhaps in a future version; for now the Activity will have to rely on theTunnelService()
+	 * to find if a tunnel is active.  And of course the key symbol indicates Android's take on tunnel life.
+	 */
+	public void onSharedPreferenceChanged (SharedPreferences prefs, String key) {
+		//
+		// If only the persistency accross reboots has changed, then no work has to be done
+		if (key.equals ("persist_accross_reboots")) {
+			return;
+		}
+		//
+		// See if the tunnel should be enabled or not.  If not, disable and return.
+		if (!prefs.getBoolean ("enable_6bed4", false)) {
+			stop ();
+			return;
+		}
+		//
+		// See if the default route must be set through 6bed4
+		new_setup_defaultroute = prefs.getBoolean ("overtake_default_route", false);
+		//
+		// Find the tunnel server IP.  Note that a change in this address
+		// does not imply a change in the local endpoint -- they are managed
+		// orthogonally, so switching back and forth between tunnel servers
+		// without change to the client IP address means that an old 6bed4
+		// address can be reused.
+		try {
+			new_tunserver = new InetSocketAddress (Inet4Address.getByName (prefs.getString ("tunserver_ip", "")), 25788);
+		} catch (UnknownHostException uhe) {
+			throw new RuntimeException ("Failed to address tunnel server", uhe);
+		}
+		start ();
+		maintainer.change_tunnel_server (new_tunserver);
+		//
+		// Find the UDP port to use on the tunnel client's IPv4 endpoint
+		// Share the old port handle if available and if set
+		int prefport = prefs.getInt ("tunclient_port", 0);
+		new_uplink = uplink;
+		if (prefport > 0) {
+			if ((uplink == null) || (prefport != uplink.getPort ())) {
+				try {
+					new_uplink = new DatagramSocket (prefport);
+				} catch (IOException ioe) {
+					;		// Handle below
+				}
+			}
+		} else {
+			new_uplink = null;	// Enforce a *different* random port
+		}
+		if (new_uplink == null) {
+			try {
+				new_uplink = new DatagramSocket (); // Fallback is random port
+			} catch (SocketException se) {
+				throw new RuntimeException ("Failure to bind to random UDP port", se);
+			}
+		}
+		//
+		// Process potential network changes
+		synchronized (this) {
+			if ((uplink == null) || !new_uplink.equals (uplink)) {
+				if (uplink != null) {
+					uplink.close ();
+				}
+				uplink = new_uplink;
+				try {
+					uplink.setSoTimeout (1);
+				} catch (SocketException se) {
+					throw new RuntimeException ("UDP socket refuses turbo mode", se);
+				}
+				maintainer.have_local_address (false);
+			}
+			if (tunserver == null) {
+				tunserver = new_tunserver;
+				maintainer.have_local_address (false);
+			} else {
+				if (!new_tunserver.equals (tunserver)) {
+					maintainer.have_local_address (false);
+				}
+			}
+			// notifyAll ();
+		}
+		if ((maintainer != null) && maintainer.have_local_address ()) {
+			update_local_netconfig ();
+		} else {
+			start ();
+		}
+		//
+		// Done
+		return;
 	}
 	
 	/* Notify the tunnel of a new local address.  This is called after
@@ -650,13 +770,13 @@ public final class TunnelService extends VpnService {
 	 *  - byte new_local_address [16]
 	 *  - boolean new_setup_defaultroute
 	 */
-	public void change_local_netconfig () {
+	public void update_local_netconfig () {
 		Builder builder;
 		builder = new Builder ();
 		builder.setSession ("6bed4 uplink to IPv6");
 		builder.setMtu (1280);
 		try {
-			//TODO// For now, setup a /128 address to avoid v01-style Neighbor Discovery
+			// Setup a /128 address to avoid Neighbor Discovery inside Android
 			builder.addAddress (Inet6Address.getByAddress (new_local_address), 128);
 		} catch (UnknownHostException uhe) {
 			throw new RuntimeException ("6bed4 address rejected", uhe);
@@ -677,18 +797,17 @@ public final class TunnelService extends VpnService {
 		//
 		// Setup the address information for the current tunnel
 		setup_defaultroute = new_setup_defaultroute;
+		tunserver = new_tunserver;
 		memcp_address (local_address, 0, new_local_address, 0);
 		//
 		// Setup a new neighboring cache, possibly replacing an old one
+		if (ngbcache != null) {
+			ngbcache.cleanup ();
+		}
 		ngbcache = new NeighborCache (uplink, tunserver, local_address);
 		//
 		// Now actually construct the tunnel as prepared
 		fio = builder.establish ();
-		try {
-			uplink.setSoTimeout (1);
-		} catch (SocketException se) {
-			throw new RuntimeException ("UDP socket refuses turbo mode", se);
-		}
 		synchronized (this) {
 			downlink_rd = new FileInputStream  (fio.getFileDescriptor ());
 			downlink_wr = new FileOutputStream (fio.getFileDescriptor ());
@@ -699,6 +818,7 @@ public final class TunnelService extends VpnService {
 		maintainer.have_local_address (true);
 	}
 	
+	/* TODO: Create automatic processing of Android IPv6 address lists
 	public void notify_ipv6_addresses (Collection <byte []> addresslist) {
 		// See if the IPv6 address list causes a change to the wish for a default route through 6bed4
 		Iterator <byte []> adr_iter = addresslist.iterator();
@@ -711,13 +831,73 @@ public final class TunnelService extends VpnService {
 		}
 		// If the default route should change, change the local network configuration
 		if (new_setup_defaultroute != setup_defaultroute) {
-			change_local_netconfig ();
+			update_local_netconfig ();
+		}
+	}
+	*/
+	
+	/* Start active service (if not already running) */
+	public synchronized void start () {
+		//
+		// Create the worker thread that will pass information back and forth
+		if (worker == null) {
+			worker = new Worker ();
+			worker.start ();
+		} else {
+			synchronized (worker) {
+				worker.notifyAll ();
+			}
+		}
+		if (maintainer == null) {
+			maintainer = new Maintainer ();
+			maintainer.start ();
+		} else {
+			maintainer.have_local_address (false);
 		}
 	}
 	
+	/* Stop active service (if running) */
+	public synchronized void stop () {
+		try {
+			if (ngbcache != null) {
+				ngbcache.cleanup ();
+			}
+			if (worker != null) {
+				worker.interrupt ();
+				worker = null;
+			}
+			if (maintainer != null) {
+				maintainer.interrupt ();
+				maintainer = null;
+			}
+			if (downlink_rd != null) {
+				downlink_rd.close ();
+				downlink_rd = null;
+			}
+			if (downlink_wr != null) {
+				downlink_wr.close ();
+				downlink_wr = null;
+			}
+			if (fio != null) {
+				fio.close ();
+				fio = null;
+			}
+			ngbcache = null;
+		} catch (IOException ioe) {
+			;	/* Uncommon: Fallback to garbage collection */
+		}
+	}
+	
+	public TunnelService () {
+		//
+		// Setup a link to the instance of this singular class, for use in the EventMonitor
+		singular_instance = this;
+	}
+
+	/* TODO: REMOVE OLD, STATICALLY PARAMETERISED CONSTRUCTOR:
 	public TunnelService (DatagramSocket uplink_socket, InetSocketAddress publicserver) {
 		synchronized (this) {
-			uplink = uplink_socket;
+			uplink = uplink_socket;  //TODO// timeout!
 			tunserver = publicserver;
 			// notifyAll ();
 		}
@@ -735,44 +915,40 @@ public final class TunnelService extends VpnService {
 			}
 		}
 		if (maintainer == null) {
-			maintainer = new Maintainer (tunserver);
+			maintainer = new Maintainer ();
+			maintainer.change_tunnel_server (tunserver);
 			maintainer.start ();
 		} else {
 			maintainer.have_local_address (false);
 		}
 	}
+	*/
 	
 	public static TunnelService theTunnelService () {
 		return singular_instance;
 	}
 	
+	public static boolean isRunning () {
+		if (singular_instance == null) {
+			return false;
+		}
+		if (singular_instance.worker == null) {
+			return false;
+		}
+		if (singular_instance.maintainer == null) {
+			return false;
+		}
+		return true;
+	}
+	
 	synchronized public void teardown () {
-		try {
-			synchronized (this) {
-				singular_instance = null;
-				if (worker != null) {
-					worker.interrupt ();
-					worker = null;
-				}
-				if (maintainer != null) {
-					maintainer.interrupt ();
-					maintainer = null;
-				}
-				if (downlink_rd != null) {
-					downlink_rd.close ();
-					downlink_rd = null;
-				}
-				if (downlink_wr != null) {
-					downlink_wr.close ();
-					downlink_wr = null;
-				}
-				if (fio != null) {
-					fio.close ();
-					fio = null;
-				}
+		synchronized (this) {
+			singular_instance = null;
+			stop ();
+			if (uplink != null) {
+				uplink.close ();
+				uplink = null;
 			}
-		} catch (IOException ioe) {
-			;	/* Uncommon: Fallback to garbage collection */
 		}
 	}
 	
