@@ -1,53 +1,56 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="nl.openfortress.android6bed4"
     android:versionCode="5"
-    android:versionName="0.5.3" >
+    android:versionName="0.5.3">
 
     <uses-sdk
         android:minSdkVersion="14"
         android:targetSdkVersion="15" />
-    
-   <uses-permission android:name="android.permission.INTERNET" />
-   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />    
 
-   <application
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/AppTheme" >
-        
+        android:theme="@style/Theme.AppCompat">
+
         <activity
             android:name=".Android6bed4"
             android:label="@string/title_activity_main"
-            android:launchMode="standard" >
+            android:launchMode="standard">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-       <service android:name=".TunnelService"
-           android:permission="android.permission.BIND_VPN_SERVICE">
-         <intent-filter>
-             <action android:name="android.net.VpnService"/>
-             </intent-filter>
-       </service>
-       
-		<receiver android:name=".EventMonitor"
-        	android:enabled="true"
-        	android:exported="true"
-        	android:label="BootReceiver">
-        	<intent-filter>
-            	<action android:name="android.intent.action.BOOT_COMPLETED" />
-<!--
-There is no automatic response to network changes yet.  This could be useful in future versions:
- - when IPv4 addresses change (roaming) the IPv6 could be changed before network failure causes it to happen
- - When IPv6 addresses change, it could be assumed that a native route is present and could be preferred (Android supplies no routing information?)         
-            	<action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
--->            
-        	</intent-filter>
-    	</receiver>
-    	       
-   </application>
+        <service
+            android:name=".TunnelService"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".EventMonitor"
+            android:enabled="true"
+            android:exported="true"
+            android:label="BootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!--
+                There is no automatic response to network changes yet.  This could be useful in future versions:
+                 - when IPv4 addresses change (roaming) the IPv6 could be changed before network failure causes it to happen
+                 - When IPv6 addresses change, it could be assumed that a native route is present and could be preferred (Android supplies no routing information?)
+                                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+                -->
+            </intent-filter>
+        </receiver>
+
+    </application>
 
 </manifest>

@@ -4,71 +4,48 @@
     android:layout_height="match_parent"
     android:orientation="vertical" >
 
-    <Switch
-        android:id="@+id/enable_6bed4"
-        android:layout_width="match_parent"
+    <Button android:id="@+id/vpn"
+        android:layout_width="fill_parent"
         android:layout_height="wrap_content"
-        android:onClick="onEnablerClick"
-        android:paddingTop="25sp"
-        android:text="@string/enable_button_text" />
-
-    <Switch
-        android:paddingTop="35sp"
-        android:id="@+id/persist_accross_reboots"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:onClick="onPersistClick"
-        android:text="@string/persist_accross_reboots_text" />
-    
+        android:text="@string/start_vpn" />
     <TextView
-        android:paddingTop="50sp"
         xmlns:tools="http://schemas.android.com/tools"
-        android:id="@+id/textView1"
+        android:id="@+id/advancedSettings"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/advanced_settings"
         android:textAppearance="?android:attr/textAppearanceLarge"
         tools:context=".Android6bed4" />
-    
-    <Switch
-        android:paddingTop="20sp"
-        android:id="@+id/overtake_default_route"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:onClick="onDefaultRouteClick"
-        android:text="@string/overtake_default_route_text" />
-    
+
     <TextView
-        android:paddingTop="35sp"
         xmlns:tools="http://schemas.android.com/tools"
         android:id="@+id/textView1"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/tunserver_address"
         tools:context=".Android6bed4" />
-
     <EditText
         android:id="@+id/tunserver_ip_string"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:inputType="phone"
         android:hint="@string/tunserver_address_hint" />
-    
     <TextView
-        android:paddingTop="35sp"
         xmlns:tools="http://schemas.android.com/tools"
         android:id="@+id/textView2"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/tunclient_port"
         tools:context=".Android6bed4" />
-
     <EditText
         android:id="@+id/tunclient_port_number"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="@string/tunclient_port_hint"
         android:inputType="number" />
-
-
+    <CheckBox
+        android:id="@+id/overtake_default_route"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/overtake_default_route_text" />
 </LinearLayout>

@@ -1,42 +1,38 @@
 package nl.openfortress.android6bed4;
 
+import android.content.Intent;
 import android.net.VpnService;
 import android.os.ParcelFileDescriptor;
+import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 import android.content.SharedPreferences;
 
 import java.net.*;
 import java.io.*;
-import java.util.Collection;
-import java.util.Iterator;
 
 
 public final class TunnelService
 extends VpnService
-implements SharedPreferences.OnSharedPreferenceChangeListener
 {
 
-	private static final String TAG = "android6bed4.TunnelService";
-	
+	private static final String TAG = "TunnelService";
+	public static final String BROADCAST_VPN_STATE = "nl.openfortress.android6bed4.VPN_STATE";
+
 	static private TunnelService singular_instance = null;
 	
 	static private ParcelFileDescriptor fio = null;
 	static private FileInputStream  downlink_rd = null;
 	static private FileOutputStream downlink_wr = null;
 
-	static private InetSocketAddress     tunserver = null;
-	static private InetSocketAddress new_tunserver = null;
+	static private InetSocketAddress  tunserver = null;
 	static private DatagramSocket     uplink = null;
-	static private DatagramSocket new_uplink = null;
 
-	static private boolean new_setup_defaultroute = true;
-	static private boolean     setup_defaultroute = false;
-	static byte new_local_address [] = new byte [16];
+	static private boolean     setup_defaultroute = true;
 	static byte     local_address [] = new byte [16];
 
 	static private NeighborCache ngbcache = null;
 	
-	static SharedPreferences prefs;
+	static public SharedPreferences prefs;
 	
 	static Worker worker;
 	static Maintainer maintainer;
@@ -134,10 +130,6 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 					// Receiver address is not 0xfe80::/64
 					return;
 				}
-				if ((pkt [OFS_IP6_DST + 11] != (byte) 0xff) || (pkt [OFS_IP6_DST + 12] != (byte) 0xfe)) {
-					// No MAC-based destination address ending in ....:..ff:fe..:....
-					return;
-				}
 				//TODO// Check if offered address looks like a multicast-address (MAC byte 0 is odd)
 				//TODO// Check Secure ND on incoming Router Advertisement?
 				//
@@ -166,8 +158,8 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 				}
 				if (destprefix_ofs > 0) {
 					for (int i=0; i<8; i++) {
-						new_local_address [0 + i] = pkt [destprefix_ofs + i];
-						new_local_address [8 + i] = pkt [OFS_IP6_DST + 8 + i]; 
+						local_address [0 + i] = pkt [destprefix_ofs + i];
+						local_address [8 + i] = pkt [OFS_IP6_DST + 8 + i];
 					}
 					//TODO// syslog (LOG_INFO, "%s: Assigning address %s to tunnel\n", program, v6prefix);
 					update_local_netconfig ();
@@ -494,6 +486,7 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 							uplen = downlink_rd.read (packet_up);
 						}
 						if (uplen > 0) {
+							Log.d(TAG, "uplen = " + Integer.toString(uplen));
 							handle_6to4 (packet_up, uplen);
 						}
 					} catch (SocketTimeoutException ex) {
@@ -510,6 +503,8 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 					} else {
 						try {
 							uplink.receive (packet_dn);
+							Log.d(TAG, packet_dn.getAddress().toString());
+							Log.d(TAG, Integer.toString(packet_dn.getLength()));
 							handle_4to6 (packet_dn);
 							nothingdown = false;
 						} catch (SocketTimeoutException ex) {
@@ -678,21 +673,10 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 	 * Activity.  Perhaps in a future version; for now the Activity will have to rely on theTunnelService()
 	 * to find if a tunnel is active.  And of course the key symbol indicates Android's take on tunnel life.
 	 */
-	public void onSharedPreferenceChanged (SharedPreferences prefs, String key) {
-		//
-		// If only the persistency accross reboots has changed, then no work has to be done
-		if (key.equals ("persist_accross_reboots")) {
-			return;
-		}
-		//
-		// See if the tunnel should be enabled or not.  If not, disable and return.
-		if (!prefs.getBoolean ("enable_6bed4", false)) {
-			stop ();
-			return;
-		}
+	public void applyPreferences() {
 		//
 		// See if the default route must be set through 6bed4
-		new_setup_defaultroute = prefs.getBoolean ("overtake_default_route", false);
+		setup_defaultroute = prefs.getBoolean ("overtake_default_route", true);
 		//
 		// Find the tunnel server IP.  Note that a change in this address
 		// does not imply a change in the local endpoint -- they are managed
@@ -700,68 +684,31 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 		// without change to the client IP address means that an old 6bed4
 		// address can be reused.
 		try {
-			new_tunserver = new InetSocketAddress (Inet4Address.getByName (prefs.getString ("tunserver_ip", "")), 25788);
+			tunserver = new InetSocketAddress (Inet4Address.getByName (prefs.getString ("tunserver_ip", "78.47.172.8")), 25788);
 		} catch (UnknownHostException uhe) {
 			throw new RuntimeException ("Failed to address tunnel server", uhe);
 		}
 		start ();
-		maintainer.change_tunnel_server (new_tunserver);
+		maintainer.change_tunnel_server (tunserver);
 		//
 		// Find the UDP port to use on the tunnel client's IPv4 endpoint
 		// Share the old port handle if available and if set
 		int prefport = prefs.getInt ("tunclient_port", 0);
-		new_uplink = uplink;
-		if (prefport > 0) {
-			if ((uplink == null) || (prefport != uplink.getPort ())) {
-				try {
-					new_uplink = new DatagramSocket (prefport);
-				} catch (IOException ioe) {
-					;		// Handle below
-				}
-			}
-		} else {
-			new_uplink = null;	// Enforce a *different* random port
-		}
-		if (new_uplink == null) {
-			try {
-				new_uplink = new DatagramSocket (); // Fallback is random port
-			} catch (SocketException se) {
-				throw new RuntimeException ("Failure to bind to random UDP port", se);
-			}
-		}
-		//
-		// Process potential network changes
-		synchronized (this) {
-			if ((uplink == null) || !new_uplink.equals (uplink)) {
-				if (uplink != null) {
-					uplink.close ();
-				}
-				uplink = new_uplink;
-				try {
-					uplink.setSoTimeout (1);
-				} catch (SocketException se) {
-					throw new RuntimeException ("UDP socket refuses turbo mode", se);
-				}
-				maintainer.have_local_address (false);
-			}
-			if (tunserver == null) {
-				tunserver = new_tunserver;
-				maintainer.have_local_address (false);
+		try {
+			if (prefport > 0) {
+				uplink = new DatagramSocket (prefport);
 			} else {
-				if (!new_tunserver.equals (tunserver)) {
-					maintainer.have_local_address (false);
-				}
+				uplink = new DatagramSocket (); // Fallback is random port
 			}
-			// notifyAll ();
+			uplink.setSoTimeout (1);
+		} catch (IOException ioe) {
+			throw new RuntimeException ("Failure to bind to random UDP port", ioe);
 		}
 		if ((maintainer != null) && maintainer.have_local_address ()) {
 			update_local_netconfig ();
 		} else {
 			start ();
 		}
-		//
-		// Done
-		return;
 	}
 	
 	/* Notify the tunnel of a new local address.  This is called after
@@ -776,12 +723,12 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 		builder.setSession ("6bed4 uplink to IPv6");
 		builder.setMtu (1280);
 		try {
-			// Setup a /128 address to avoid Neighbor Discovery inside Android
-			builder.addAddress (Inet6Address.getByAddress (new_local_address), 128);
+			builder.addAddress (Inet6Address.getByAddress (local_address), 64);
+			builder.addDnsServer("8.8.8.8");
 		} catch (UnknownHostException uhe) {
 			throw new RuntimeException ("6bed4 address rejected", uhe);
 		}
-		if (new_setup_defaultroute) {
+		if (setup_defaultroute) {
 			Log.i (TAG, "Creating default route through 6bed4 tunnel");
 			builder.addRoute ("::", 0);
 		} else {
@@ -795,10 +742,6 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 			}
 		}
 		//
-		// Setup the address information for the current tunnel
-		setup_defaultroute = new_setup_defaultroute;
-		tunserver = new_tunserver;
-		memcp_address (local_address, 0, new_local_address, 0);
 		//
 		// Setup a new neighboring cache, possibly replacing an old one
 		if (ngbcache != null) {
@@ -835,7 +778,13 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 		}
 	}
 	*/
-	
+	@Override
+	public void onCreate() {
+		super.onCreate();
+		applyPreferences();
+		LocalBroadcastManager.getInstance(this).sendBroadcast(new Intent(BROADCAST_VPN_STATE).putExtra("running", true));
+	}
+
 	/* Start active service (if not already running) */
 	public synchronized void start () {
 		//
@@ -940,22 +889,18 @@ implements SharedPreferences.OnSharedPreferenceChangeListener
 		}
 		return true;
 	}
-	
-	synchronized public void teardown () {
-		synchronized (this) {
-			singular_instance = null;
-			stop ();
-			if (uplink != null) {
-				uplink.close ();
-				uplink = null;
-			}
-		}
-	}
-	
-	synchronized public void onRevoke () {
-		this.teardown ();
-	}
 
+	@Override
+	public void onDestroy()
+	{
+		singular_instance = null;
+		stop ();
+		if (uplink != null) {
+			uplink.close ();
+			uplink = null;
+		}
+		Log.i(TAG, "Stopped");
+	}
 
 	/***
 	 *** UTILITY FUNCTIONS
