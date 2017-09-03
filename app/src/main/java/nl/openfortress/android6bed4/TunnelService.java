@@ -684,7 +684,7 @@ extends VpnService
 		// without change to the client IP address means that an old 6bed4
 		// address can be reused.
 		try {
-			tunserver = new InetSocketAddress (Inet4Address.getByName (prefs.getString ("tunserver_ip", "78.47.172.8")), 25788);
+			tunserver = new InetSocketAddress (Inet4Address.getByName (prefs.getString ("tunserver_ip", "")), 25788);
 		} catch (UnknownHostException uhe) {
 			throw new RuntimeException ("Failed to address tunnel server", uhe);
 		}

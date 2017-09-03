@@ -676,9 +676,6 @@ class NeighborCache {
 		if (TunnelService.memdiff_halfaddr (addr, addrofs, address_6bed4, 0)) {
 			return false;
 		}
-		if ((addr [addrofs + 11] != (byte) 0xff) || (addr [addrofs + 12] != (byte) 0xfe)) {
-			return false;
-		}
 		//TODO// Possibly require that the port number is even
 		return true;
 	}
@@ -687,12 +684,14 @@ class NeighborCache {
 	 * address is known to be a 6bed4 address.
 	 */
 	private static void address2key (byte addr [], int addrofs, byte key []) {
-		key [0] = (byte) (addr [addrofs +  8] ^ 0x02);
-		key [1] = addr [addrofs +  9];
-		key [2] = addr [addrofs + 10];
-		key [3] = addr [addrofs + 13];
-		key [4] = addr [addrofs + 14];
-		key [5] = addr [addrofs + 15];
+		// UDP port
+		key [0] = addr [addrofs + 13];
+		key [1] = addr [addrofs + 12];
+		// IPv4 address
+		key [2] = (byte) (addr [addrofs + 8] & 0xfc | addr [addrofs + 14] >> 6);
+		key [3] = addr [addrofs + 9];
+		key [4] = addr [addrofs + 10];
+		key [5] = addr [addrofs + 11];
 	}
 
 	/* Map an InetSocketAddress to a 6-byte key in the provided space.
@@ -714,14 +713,14 @@ class NeighborCache {
 		for (int i=0; i<8; i++) {
 			addr [addrofs + i] = address_6bed4 [i];
 		}
-		addr [addrofs +  8] = (byte) (key [0] ^ 0x02);
-		addr [addrofs +  9] = key [1];
-		addr [addrofs + 10] = key [2];
-		addr [addrofs + 11] = (byte) 0xff;
-		addr [addrofs + 12] = (byte) 0xfe;
-		addr [addrofs + 13] = key [3];
-		addr [addrofs + 14] = key [4];
-		addr [addrofs + 15] = key [5];
+		addr [addrofs +  8] = (byte) (key [2] & 0xfc);
+		addr [addrofs +  9] = key [3];
+		addr [addrofs + 10] = key [4];
+		addr [addrofs + 11] = key [5];
+		addr [addrofs + 12] = key [0];
+		addr [addrofs + 13] = key [1];
+		addr [addrofs + 14] = (byte) (key [2] << 6);
+		addr [addrofs + 15] = 0;
 	}
 
 	/* Map a key to an InetSocketAddress.
