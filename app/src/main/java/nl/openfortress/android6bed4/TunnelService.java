@@ -365,6 +365,7 @@ extends VpnService
 			} else {
 				target = tunserver;
 			}
+			Log.i (TAG, "target = " + target);
 			uplink.send (new DatagramPacket (pkt, pktlen, target));
 		}
 		

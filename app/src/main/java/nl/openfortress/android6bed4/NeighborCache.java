@@ -688,7 +688,7 @@ class NeighborCache {
 		key [0] = addr [addrofs + 13];
 		key [1] = addr [addrofs + 12];
 		// IPv4 address
-		key [2] = (byte) (addr [addrofs + 8] & 0xfc | addr [addrofs + 14] >> 6);
+		key [2] = (byte) (addr [addrofs + 8] & 0xfc | (addr [addrofs + 14] & 0xff) >> 6);
 		key [3] = addr [addrofs + 9];
 		key [4] = addr [addrofs + 10];
 		key [5] = addr [addrofs + 11];
@@ -717,10 +717,10 @@ class NeighborCache {
 		addr [addrofs +  9] = key [3];
 		addr [addrofs + 10] = key [4];
 		addr [addrofs + 11] = key [5];
-		addr [addrofs + 12] = key [0];
-		addr [addrofs + 13] = key [1];
-		addr [addrofs + 14] = (byte) (key [2] << 6);
-		addr [addrofs + 15] = 0;
+		addr [addrofs + 12] = key [1];
+		addr [addrofs + 13] = key [0];
+		addr [addrofs + 14] = (byte) ((key [2] & 0xff) << 6);
+		addr [addrofs + 15] = 1;
 	}
 
 	/* Map a key to an InetSocketAddress.
