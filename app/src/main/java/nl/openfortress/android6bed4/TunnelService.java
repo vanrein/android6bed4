@@ -365,7 +365,9 @@ extends VpnService
 			} else {
 				target = tunserver;
 			}
-			uplink.send (new DatagramPacket (pkt, pktlen, target));
+			DatagramPacket dgp = new DatagramPacket (pkt, pktlen, target);
+			Log.i(TAG, "sending to " + dgp.getSocketAddress() + ", length = " + dgp.getLength());
+			uplink.send (dgp);
 		}
 		
 		public void handle_6to4_nd (byte pkt [], int pktlen)
@@ -486,7 +488,6 @@ extends VpnService
 							uplen = downlink_rd.read (packet_up);
 						}
 						if (uplen > 0) {
-							Log.d(TAG, "uplen = " + Integer.toString(uplen));
 							handle_6to4 (packet_up, uplen);
 						}
 					} catch (SocketTimeoutException ex) {

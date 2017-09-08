@@ -1,6 +1,8 @@
 package nl.openfortress.android6bed4;
 
 
+import android.util.Log;
+
 import java.util.Hashtable;
 import java.util.Queue;
 import java.util.ArrayDeque;
@@ -53,7 +55,8 @@ import java.io.IOException;
  */
 
 class NeighborCache {
-	
+
+	private static final String TAG = "NeighborCache";
 	/* The states of neighbors in the cache.
 	 */
 	public final static int ATTEMPT1 = 0;		/* Discovery sequence */
@@ -83,7 +86,7 @@ class NeighborCache {
 	 * accepted in the STALE state.
 	 */
 	final static int state_timing_millis [] = {
-			200, 200, 200, 30000,				/* Discovery -- a few ms between steps */
+			25, 250, 500, 30000,				/* Discovery -- a few ms between steps */
 			30000,							/* REACHABLE -- 30 seconds of bliss */
 			27500							/* STALE -- 30 additional seconds */
 	};
@@ -227,6 +230,7 @@ class NeighborCache {
 				puppy = true;
 			}
 		}
+		Log.i(TAG, "ngb.state = " + ngb.state);
 		switch (ngb.state) {
 		case ATTEMPT1:
 		case ATTEMPT2:
