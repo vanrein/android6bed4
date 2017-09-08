@@ -110,7 +110,7 @@ class NeighborCache {
 	private Hashtable <Integer, Neighbor> neighbor_cache;
 	
 	
-	/* The public server, used as default return value for queires after
+	/* The public server, used as default return value for queries after
 	 * unsettled neighbor cache entries.
 	 */
 	private InetSocketAddress public_server;
@@ -121,7 +121,7 @@ class NeighborCache {
 	private DatagramSocket uplink;
 	
 	
-	/* The 6bed4 address as a 16-byte array; may also be used as an 8-byte prefix.
+	/* The 6bed4 address as a 16-byte array; may also be used for its 8-byte prefix.
 	 */
 	private byte address_6bed4 [];
 	
@@ -171,9 +171,9 @@ class NeighborCache {
 	 * 
 	 * The "playful" argument is rather special.  When set to true, it
 	 * indicates that an initial experiment attempting to contact the
-	 * neighbor directly is acceptable.  This is usually the cae if the
+	 * neighbor directly is acceptable.  This is usually the case if the
 	 * following conditions apply:
-	 *  1. The message is resent upon failure
+	 *  1. The message will be resent upon failure
 	 *  2. Success can be recognised and reported back here
 	 *  Setting this flag causes the first (and only the first) result
 	 *  from lookup_neighbor to point directly to the host; resends will
@@ -244,7 +244,7 @@ class NeighborCache {
 			// If the new entry was just inserted into the neighbor
 			// cache for this thread, then enqueue into ATTEMPT1, part
 			// of which is sending a neighbor solicitation.  However,
-			// if the  request is made by a playful puppy, then skip
+			// if the request is made by a playful puppy, then skip
 			// sending the Neighbor Discovery upon insertion into the
 			// ATTEMPT1 queue; the 6bed4 stack will instead send the
 			// initial message directly to the peer.  To that end, return
