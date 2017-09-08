@@ -365,7 +365,6 @@ extends VpnService
 			} else {
 				target = tunserver;
 			}
-			Log.i (TAG, "target = " + target);
 			uplink.send (new DatagramPacket (pkt, pktlen, target));
 		}
 		
@@ -504,8 +503,7 @@ extends VpnService
 					} else {
 						try {
 							uplink.receive (packet_dn);
-							Log.d(TAG, packet_dn.getAddress().toString());
-							Log.d(TAG, Integer.toString(packet_dn.getLength()));
+							Log.d(TAG, "received from " + packet_dn.getSocketAddress().toString() + ", length = " + Integer.toString(packet_dn.getLength()));
 							handle_4to6 (packet_dn);
 							nothingdown = false;
 						} catch (SocketTimeoutException ex) {

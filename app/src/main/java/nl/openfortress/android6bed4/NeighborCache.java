@@ -83,9 +83,9 @@ class NeighborCache {
 	 * accepted in the STALE state.
 	 */
 	final static int state_timing_millis [] = {
-			50, 50, 50, 30000,				/* Discovery -- a few ms between steps */
-			27500,							/* STALE -- 30 additional seconds */
-			30000							/* REACHABLE -- 30 seconds of bliss */
+			200, 200, 200, 30000,				/* Discovery -- a few ms between steps */
+			30000,							/* REACHABLE -- 30 seconds of bliss */
+			27500							/* STALE -- 30 additional seconds */
 	};
 	
 	/* The timer queues for neighbor discovery, each in its own thread */
